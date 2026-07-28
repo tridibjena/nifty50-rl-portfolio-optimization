@@ -6,7 +6,7 @@
 8 out-of-sample windows ·
 992 pooled out-of-sample trading days ·
 2022-03-16 → 2026-04-02 ·
-24 strategies · 47 effective trials.
+20 strategies · 43 effective trials.
 
 ---
 
@@ -22,7 +22,7 @@ different and far more informative answer:
 
 | | Single split (1 window, 222 days) | Walk-forward (8 windows, 992 days) |
 |---|---|---|
-| Strategies with positive return | 0 of 18 | 23 of 24 |
+| Strategies with positive return | 0 of 18 | 19 of 20 |
 | Best pooled Sharpe | −0.75 | 0.70 |
 | Benchmark (BuyHold) | −9.3% | +50.9% |
 
@@ -69,17 +69,13 @@ which windows were hard for everything. A single test period hides both.
 | Selected_OOS | 1,352,164 | 352,164 | 35.2% | 8.0% | 0.28 | 88% | 38% | -2.7% | -2.9% | 31% |
 | MomentumTilt | 1,445,315 | 445,315 | 44.5% | 9.8% | 0.28 | 75% | 38% | -18.4% | -11.4% | 62% |
 | RiskParity+Regime | 1,384,770 | 384,770 | 38.5% | 8.6% | 0.26 | 75% | 38% | -8.1% | -6.4% | 96% |
-| PPO_s2 | 1,396,493 | 396,493 | 39.6% | 8.9% | 0.25 | 75% | 25% | -8.5% | -8.4% | 99% |
 | HRP+Regime | 1,377,673 | 377,673 | 37.8% | 8.5% | 0.24 | 75% | 25% | -9.9% | -6.5% | 96% |
 | NIFTY50_Index | 1,380,807 | 380,807 | 38.1% | 8.5% | 0.21 | 62% | 25% | -10.0% | -9.6% | — |
-| PPO_s1 | 1,370,843 | 370,843 | 37.1% | 8.3% | 0.20 | 75% | 12% | -9.5% | -8.4% | 99% |
-| PPO_ensemble | 1,360,242 | 360,242 | 36.0% | 8.1% | 0.19 | 75% | 12% | -8.6% | -8.4% | 99% |
-| PPO_s0 | 1,313,551 | 313,551 | 31.4% | 7.2% | 0.11 | 75% | 12% | -8.2% | -8.3% | 99% |
 | Breakout_20 | 1,275,061 | 275,061 | 27.5% | 6.4% | 0.01 | 75% | 38% | -2.7% | -3.4% | 36% |
 | MomentumPullback | 1,197,362 | 197,362 | 19.7% | 4.7% | -0.52 | 75% | 25% | -1.2% | -1.8% | 15% |
 | VIX_Regime_Mom | 1,116,933 | 116,933 | 11.7% | 2.8% | -0.77 | 62% | 25% | -4.1% | -3.1% | 27% |
 | Sentiment_Momentum | 1,025,243 | 25,243 | 2.5% | 0.6% | -0.97 | 38% | 25% | -4.3% | -4.2% | 29% |
-| Random | 703,202 | -296,798 | -29.7% | -8.6% | -2.02 | 38% | 0% | -18.4% | -8.7% | 49% |
+| Random | 688,710 | -311,290 | -31.1% | -9.0% | -2.28 | 25% | 0% | -14.0% | -7.9% | 49% |
 | RSI_35_60 | 1,281,333 | 281,333 | 28.1% | 6.5% | — | 100% | 38% | 3.1% | 0.0% | 0% |
 
 `windows_beating_benchmark` matters more than the pooled return. A strategy that beats
@@ -100,40 +96,36 @@ had a good window.
 
 | strategy | sharpe | sharpe_ci_lower | sharpe_ci_upper | ci_excludes_zero | dsr | cash_like |
 |---|---|---|---|---|---|---|
-| MaxSharpe | 0.70 | -0.29 | 1.68 | False | 0.109 | False |
-| BuyHold | 0.39 | -0.60 | 1.40 | False | 0.031 | False |
-| EqualWeight | 0.38 | -0.65 | 1.42 | False | 0.029 | False |
-| HRP | 0.36 | -0.68 | 1.45 | False | 0.027 | False |
-| InverseVol | 0.36 | -0.66 | 1.41 | False | 0.027 | False |
-| RiskParity | 0.35 | -0.66 | 1.42 | False | 0.026 | False |
-| MA_20_50 | 0.33 | -0.65 | 1.39 | False | 0.023 | False |
-| MinVariance | 0.29 | -0.74 | 1.37 | False | 0.019 | False |
-| EqualWeight+Regime | 0.28 | -0.75 | 1.29 | False | 0.019 | False |
-| Selected_OOS | 0.28 | -0.73 | 1.28 | False | 0.018 | False |
-| MomentumTilt | 0.28 | -0.83 | 1.35 | False | 0.019 | False |
-| RiskParity+Regime | 0.26 | -0.81 | 1.27 | False | 0.017 | False |
-| PPO_s2 | 0.25 | -0.70 | 1.22 | False | 0.015 | False |
-| HRP+Regime | 0.24 | -0.84 | 1.28 | False | 0.015 | False |
-| NIFTY50_Index | 0.21 | -0.68 | 1.18 | False | 0.013 | False |
-| PPO_s1 | 0.20 | -0.72 | 1.19 | False | 0.013 | False |
-| PPO_ensemble | 0.19 | -0.75 | 1.18 | False | 0.012 | False |
-| PPO_s0 | 0.11 | -0.83 | 1.08 | False | 0.008 | False |
-| Breakout_20 | 0.01 | -0.99 | 1.05 | False | 0.004 | False |
+| MaxSharpe | 0.70 | -0.29 | 1.68 | False | 0.050 | False |
+| BuyHold | 0.39 | -0.60 | 1.40 | False | 0.011 | False |
+| EqualWeight | 0.38 | -0.65 | 1.42 | False | 0.010 | False |
+| HRP | 0.36 | -0.68 | 1.45 | False | 0.010 | False |
+| InverseVol | 0.36 | -0.66 | 1.41 | False | 0.009 | False |
+| RiskParity | 0.35 | -0.66 | 1.42 | False | 0.009 | False |
+| MA_20_50 | 0.33 | -0.65 | 1.39 | False | 0.008 | False |
+| MinVariance | 0.29 | -0.74 | 1.37 | False | 0.006 | False |
+| EqualWeight+Regime | 0.28 | -0.75 | 1.29 | False | 0.006 | False |
+| Selected_OOS | 0.28 | -0.73 | 1.28 | False | 0.006 | False |
+| MomentumTilt | 0.28 | -0.83 | 1.35 | False | 0.006 | False |
+| RiskParity+Regime | 0.26 | -0.81 | 1.27 | False | 0.005 | False |
+| HRP+Regime | 0.24 | -0.84 | 1.28 | False | 0.005 | False |
+| NIFTY50_Index | 0.21 | -0.68 | 1.18 | False | 0.004 | False |
+| Breakout_20 | 0.01 | -0.99 | 1.05 | False | 0.001 | False |
 | MomentumPullback | -0.52 | -1.53 | 0.53 | False | 0.000 | False |
 | VIX_Regime_Mom | -0.77 | -1.93 | 0.34 | False | 0.000 | False |
 | Sentiment_Momentum | -0.97 | -1.77 | -0.11 | True | 0.000 | False |
-| Random | -2.02 | -3.34 | -0.83 | True | 0.000 | False |
+| Random | -2.28 | -3.34 | -1.19 | True | 0.000 | False |
 | RSI_35_60 | — | — | — | False | 0.000 | True |
 
-- **Probability of Backtest Overfitting: 0.36** — the fraction of
+- **Probability of Backtest Overfitting: 0.37** — the fraction of
   in-sample winners that land in the bottom half out-of-sample. Well below the 0.5 that
   would mean selection carries no information.
-- **White's Reality Check p-value: 0.272** — the best
+- **White's Reality Check p-value: 0.270** — the best
   strategy does *not* beat buy-and-hold at conventional significance once the size of the
   search is accounted for.
-- **Deflated Sharpe Ratio of the winner: 0.109** over
-  47 effective trials.
-- Confidence intervals excluding zero: **2 of 24**.
+- **Deflated Sharpe Ratio of the winner: 0.050** over
+  43 effective trials.
+- Confidence intervals excluding zero: **2 of 20**.
 
 The honest summary: the walk-forward record is positive and reasonably consistent, but
 after correcting for how many configurations were tried, no strategy here is
@@ -379,65 +371,6 @@ that follow them, and over eight windows that cost more than the drawdown it sav
 Reported as measured. The regime layer earns its place here as *diagnosis* — the timeline,
 the conditional performance table, the stratified evaluation — not as an exposure signal.
 
-
----
-
-## The reinforcement-learning agent
-
-PPO is retrained from scratch inside **every** walk-forward window: the feature scaler is
-refit on that window's training block, the block is split so the Sharpe checkpoint has a
-validation slice it never trained on, and 3 independent seeds are run. Selection and
-deployment use the same rule -- the checkpoint callback is always active, which the
-original notebook did not do.
-
-![PPO seed dispersion](assets/v2/ppo_seed_dispersion.png)
-
-**The agent underperforms buy-and-hold.** Pooled out-of-sample: PPO ensemble
-36.0% against BuyHold 50.8% and HRP
-48.1%. Pooled Sharpe 0.19. It beats the benchmark in
-12% of windows.
-
-**And that is a real finding, not a variance artifact.** Mean spread between the best and
-worst seed within a window is 1.37%, median within-window seed
-standard deviation 0.50%. Three independent training runs land in
-essentially the same place, so the underperformance is a property of the setup — reward,
-observation, budget, action space — rather than of the seed. The original project reported
-a single seed and listed that as a limitation; this is what checking it looks like.
-
-| window | min | mean | max | std |
-|---|---|---|---|---|
-| 1 | 4.43% | 7.59% | 9.70% | 2.79% |
-| 2 | 0.29% | 0.34% | 0.42% | 0.07% |
-| 3 | 13.54% | 13.74% | 13.95% | 0.21% |
-| 4 | 9.26% | 9.39% | 9.61% | 0.19% |
-| 5 | 18.05% | 18.52% | 19.29% | 0.67% |
-| 6 | -8.47% | -8.16% | -7.82% | 0.33% |
-| 7 | 0.92% | 1.78% | 2.51% | 0.80% |
-| 8 | -9.49% | -8.59% | -8.15% | 0.77% |
-
-### What the policy actually learned
-
-The interesting part is not that PPO lost — it is *how*. Its daily returns correlate
-**0.993** with buy-and-hold, and its mean exposure is **99.2%**. The
-agent converged to holding the basket, essentially all the time, and then paid turnover
-for the privilege: it trails the benchmark by 0.82 percentage points per window on
-average and is behind in six of eight, with a best-case edge of +0.15%.
-
-Compare `MaxSharpe`, which correlates 0.770 with the benchmark at
-44.6% exposure and beats it by 43.8 points. *That* is a differentiated
-policy. PPO here is a costly reimplementation of the benchmark.
-
-That reframes the next experiment. The problem is not "train longer" — three seeds landing
-within half a percent of each other says the optimiser found what this reward is asking
-for. The reward, at ~1,000 steps per episode, is close to maximising log wealth with weak
-penalties, and full investment is very nearly the correct answer to it. Changing the
-outcome means changing the question: the differential Sharpe reward
-(`envs/rewards.py`), a turnover cost the agent can actually feel, or a shorter
-rebalancing horizon where timing has something to decide.
-
-A 60,000-step budget per window is modest, and a larger one might change the answer. But
-the honest statement today is that a PPO allocator trained this way does not beat monthly
-max-Sharpe rebalancing, or equal weight, or holding the basket.
 
 ---
 
