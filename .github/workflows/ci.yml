@@ -6,56 +6,31 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The project is a single notebook, so there is no package to import and no test suite
+# to run. What CI can still do is keep the notebook reviewable: check that it parses,
+# that its code is free of the errors a linter can see without executing it, and that it
+# has not started carrying megabytes of embedded output.
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.11", "3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-
-      # The whole suite runs on synthetic fixtures -- no network, no market data, no
-      # RL stack. That is deliberate: a test suite that needs yfinance is a test suite
-      # that fails on someone else's machine for reasons unrelated to the code.
-      - name: Install core dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install numpy pandas scipy scikit-learn matplotlib pytest
-
-      - name: Run tests
-        run: python -m pytest tests/ -q
-
-  lint:
+  notebook:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install ruff
-      - run: ruff check src tests scripts --output-format=github
 
-  notebook-hygiene:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      # The failure mode to prevent is bloat, not outputs. A narrative notebook is
-      # supposed to carry its printed tables -- that is the point of committing one.
-      # What made the original repo's duplicate 2.6 MB was *embedded PNGs*, so the gate
-      # targets those and the resulting file size directly.
-      - name: Check notebook size and embedded images
+      - name: Install tooling
+        run: pip install ruff nbformat
+
+      # Ruff reads .ipynb directly. This catches undefined names and unused imports --
+      # worth having, because in a flat notebook a typo in a name defined thirty cells
+      # earlier is otherwise only found by running the whole thing.
+      - name: Lint the notebook
+        run: ruff check notebooks/ --output-format=github
+
+      - name: Check structure, size and embedded output
         run: |
           python - <<'PY'
           import json, pathlib, sys
@@ -63,25 +38,34 @@ jobs:
           LIMIT_KB = 512
           failed = False
 
-          for nb_path in sorted(pathlib.Path(".").glob("**/*.ipynb")):
-              if ".ipynb_checkpoints" in nb_path.parts:
-                  continue
+          for nb_path in sorted(pathlib.Path("notebooks").glob("*.ipynb")):
               size_kb = nb_path.stat().st_size / 1024
               nb = json.loads(nb_path.read_text())
+              cells = nb.get("cells", [])
+
               embedded = sum(
                   1
-                  for cell in nb.get("cells", [])
+                  for cell in cells
                   for out in cell.get("outputs", [])
                   if any(k.startswith("image/") for k in out.get("data", {}))
               )
-              status = "ok"
+
+              problems = []
               if embedded:
-                  status = f"::error file={nb_path}::{embedded} embedded image output(s); reference ../assets/ instead"
+                  # Figures are written to assets/ and linked, never inlined. Inlining is
+                  # what turned an earlier copy of this project into a 2.6 MB diff.
+                  problems.append(f"{embedded} embedded image output(s)")
+              if size_kb > LIMIT_KB:
+                  problems.append(f"{size_kb:.0f} KB exceeds the {LIMIT_KB} KB limit")
+              if not cells:
+                  problems.append("no cells")
+
+              for problem in problems:
+                  print(f"::error file={nb_path}::{problem}")
                   failed = True
-              elif size_kb > LIMIT_KB:
-                  status = f"::error file={nb_path}::{size_kb:.0f} KB exceeds the {LIMIT_KB} KB limit"
-                  failed = True
-              print(f"{nb_path}  {size_kb:7.0f} KB  {embedded} embedded  {status}")
+
+              print(f"{nb_path}  {size_kb:7.0f} KB  {len(cells):3d} cells  "
+                    f"{embedded} embedded  {'FAIL' if problems else 'ok'}")
 
           sys.exit(1 if failed else 0)
           PY

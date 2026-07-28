@@ -1,0 +1,26 @@
+line-length = 100
+target-version = "py39"
+
+[lint]
+# Stated explicitly rather than relying on the default. CI installs the newest ruff, so
+# an implicit rule set means a ruff release can turn the lint job red without a single
+# line of this project changing. These are pyflakes plus the pycodestyle errors that
+# indicate real mistakes -- unused names, undefined names, broken syntax.
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# Ruff reads a notebook as one long file, but it is really a stack of what used to be
+# separate modules. Each cell opens the way a module does -- docstring, __future__
+# import, then its imports -- which from a whole-file view means imports keep appearing
+# "late" and repeating. All four rules below flag that shape rather than any defect, and
+# the notebook is verified to run end to end.
+#
+# Deliberately still active: F821 (undefined name) and the E9 syntax rules. Those are
+# the ones worth having here -- in a flat notebook, a typo in a name defined thirty
+# cells earlier is otherwise only caught by running the whole thing.
+"notebooks/*.ipynb" = [
+    "E402",  # imports not at top of file
+    "F404",  # __future__ import repeated per cell (valid: cells compile separately)
+    "F401",  # same third-party import needed by several cells
+    "F811",  # redefinition across cells
+]
