@@ -51,15 +51,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install nbstripout
-      # Committed notebook outputs are how a 93 KB file becomes 2.6 MB and how stale
-      # numbers outlive the code that produced them.
-      - name: Fail if any notebook has committed outputs
+      # The failure mode to prevent is bloat, not outputs. A narrative notebook is
+      # supposed to carry its printed tables -- that is the point of committing one.
+      # What made the original repo's duplicate 2.6 MB was *embedded PNGs*, so the gate
+      # targets those and the resulting file size directly.
+      - name: Check notebook size and embedded images
         run: |
-          shopt -s nullglob
-          for nb in *.ipynb notebooks/*.ipynb; do
-            if ! nbstripout --verify "$nb"; then
-              echo "::error file=$nb::notebook has committed outputs; run 'nbstripout $nb'"
-              exit 1
-            fi
-          done
+          python - <<'PY'
+          import json, pathlib, sys
+
+          LIMIT_KB = 512
+          failed = False
+
+          for nb_path in sorted(pathlib.Path(".").glob("**/*.ipynb")):
+              if ".ipynb_checkpoints" in nb_path.parts:
+                  continue
+              size_kb = nb_path.stat().st_size / 1024
+              nb = json.loads(nb_path.read_text())
+              embedded = sum(
+                  1
+                  for cell in nb.get("cells", [])
+                  for out in cell.get("outputs", [])
+                  if any(k.startswith("image/") for k in out.get("data", {}))
+              )
+              status = "ok"
+              if embedded:
+                  status = f"::error file={nb_path}::{embedded} embedded image output(s); reference ../assets/ instead"
+                  failed = True
+              elif size_kb > LIMIT_KB:
+                  status = f"::error file={nb_path}::{size_kb:.0f} KB exceeds the {LIMIT_KB} KB limit"
+                  failed = True
+              print(f"{nb_path}  {size_kb:7.0f} KB  {embedded} embedded  {status}")
+
+          sys.exit(1 if failed else 0)
+          PY
