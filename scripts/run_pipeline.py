@@ -14,6 +14,7 @@ the out-of-sample blocks are chained into one continuous track record.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import warnings
 from dataclasses import replace
@@ -108,8 +109,46 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
-def main() -> None:
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Regime-aware walk-forward portfolio pipeline.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--no-rl", action="store_true",
+        help="Skip PPO training. Runs in ~90s instead of ~20min; everything else is identical.",
+    )
+    parser.add_argument(
+        "--seeds", type=int, default=len(RL_SEEDS),
+        help="Number of PPO seeds per walk-forward window.",
+    )
+    parser.add_argument(
+        "--timesteps", type=int, default=RL_TIMESTEPS,
+        help="PPO training steps per seed per window.",
+    )
+    parser.add_argument(
+        "--live", action="store_true",
+        help="Ignore the pinned end_date and pull data up to today. Results will "
+             "no longer match the published figures.",
+    )
+    parser.add_argument(
+        "--train-days", type=int, default=TRAIN_DAYS,
+        help="Initial training block length, in trading days.",
+    )
+    parser.add_argument(
+        "--test-days", type=int, default=TEST_DAYS,
+        help="Out-of-sample block length, in trading days.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(args: argparse.Namespace = None) -> None:
+    args = args or parse_args([])
     cfg = RunConfig()
+    if args.live:
+        cfg = cfg.with_(data=replace(cfg.data, end_date=None))
+        log("      NOTE: --live ignores the pinned snapshot; results will drift.")
+    train_days, test_days, step_days = args.train_days, args.test_days, args.test_days
     ASSETS.mkdir(parents=True, exist_ok=True)
     RESULTS.mkdir(parents=True, exist_ok=True)
 
@@ -125,7 +164,7 @@ def main() -> None:
     # --------------------------------------------------------------- 2. regimes
     log("[2/7] Building regime features ...")
     regime_features_raw = build_regime_features(panel).dropna()
-    first_train = regime_features_raw.index[:TRAIN_DAYS]
+    first_train = regime_features_raw.index[:train_days]
     regime_features = standardise_causally(regime_features_raw, train_index=first_train)
 
     selection = select_n_regimes(
@@ -182,7 +221,7 @@ def main() -> None:
         f"mean run {persistence.attrs['overall_mean_run']:.1f}d")
 
     stability = refit_stability(
-        make_detector, regime_features, initial_train=TRAIN_DAYS, step=STEP_DAYS
+        make_detector, regime_features, initial_train=train_days, step=step_days
     )
     stability.to_csv(RESULTS / "regime_refit_stability.csv", index=False)
     mean_kappa = stability["kappa_vs_previous"].mean()
@@ -206,8 +245,9 @@ def main() -> None:
     log(f"      {len(allocator_weights)} allocators: {list(allocator_weights)}")
 
     # ------------------------------------------------------- 5. walk-forward
-    log(f"[5/7] Rolling walk-forward "
-        f"(expanding train, {TEST_DAYS}-day test blocks, {STEP_DAYS}-day step) ...")
+    log(f"[5/7] Rolling walk-forward (expanding train, {test_days}-day test blocks) "
+        + ("without PPO ..." if args.no_rl
+           else f"with PPO: {args.seeds} seeds x {args.timesteps:,} steps per window ..."))
     passive_cfg = replace(cfg.backtest, stop_loss=None, take_profit=None)
     ladder = default_exposure_ladder(best_k)
     log(f"      regime exposure ladder {ladder} over {primary_names}")
@@ -227,14 +267,14 @@ def main() -> None:
         benchmark="BuyHold",
         exposure_ladder=ladder,
         overlay_bases=("HRP", "EqualWeight", "RiskParity"),
-        train_days=TRAIN_DAYS,
-        test_days=TEST_DAYS,
-        step_days=STEP_DAYS,
+        train_days=train_days,
+        test_days=test_days,
+        step_days=step_days,
         expanding=True,
-        rl_config=RLConfig(
+        rl_config=None if args.no_rl else RLConfig(
             features=RL_FEATURES,
-            seeds=RL_SEEDS,
-            timesteps=RL_TIMESTEPS,
+            seeds=tuple(range(args.seeds)),
+            timesteps=args.timesteps,
             val_fraction=0.2,
             include_per_seed=True,
             check_freq=10_000,
@@ -294,7 +334,7 @@ def main() -> None:
             *figures.window_returns_heatmap(
                 report.per_window, mode=mode,
                 subtitle=f"{report.n_windows} windows, expanding-train refit, "
-                         f"{TEST_DAYS}-day out-of-sample blocks.",
+                         f"{test_days}-day out-of-sample blocks.",
             ),
             ASSETS / f"walk_forward_windows{suffix}.png",
         )
@@ -373,8 +413,8 @@ def main() -> None:
     summary = {
         "evaluation": "rolling walk-forward (expanding train)",
         "n_windows": report.n_windows,
-        "train_days": TRAIN_DAYS,
-        "test_days": TEST_DAYS,
+        "train_days": train_days,
+        "test_days": test_days,
         "oos_start": str(report.windows[0].spec.test_start.date()),
         "oos_end": str(report.windows[-1].spec.test_end.date()),
         "n_oos_days": int(len(next(iter(report.pooled_returns.values())))),
@@ -401,4 +441,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(parse_args())
