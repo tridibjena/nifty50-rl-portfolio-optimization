@@ -67,12 +67,12 @@ Starting from **₹10,00,000**, over 992 out-of-sample trading days (Mar 2022 �
 
 | Strategy | Final value | Return | Sharpe | Beat benchmark | Invested |
 |---|---|---|---|---|---|
-| **MaxSharpe** | **₹19,27,869** | **+92.8%** | **0.70** | **88%** | 45% |
+| **MaxSharpe** | **₹19,28,146** | **+92.8%** | **0.70** | **88%** | 44% |
 | BuyHold *(benchmark)* | ₹15,07,648 | +50.8% | 0.39 | — | 98% |
 | EqualWeight | ₹14,95,433 | +49.5% | 0.38 | 50% | 96% |
 | HRP | ₹14,80,674 | +48.1% | 0.36 | 38% | 96% |
 | **NIFTY 50 index** | ₹13,80,807 | +38.1% | 0.21 | 25% | 100% |
-| **PPO_ensemble** | **₹13,66,853** | **+36.7%** | **0.20** | 13% | 99% |
+| **PPO_ensemble** | **₹13,62,429** | **+36.2%** | **0.19** | 12% | 99% |
 | Random | ₹7,03,202 | −29.7% | −2.02 | 0% | 49% |
 
 `windows_beating_benchmark` matters more than the pooled return: a strategy that beats
@@ -104,7 +104,7 @@ block, an inner validation split for the Sharpe checkpoint, three independent se
 
 ![PPO seed dispersion](assets/v2/ppo_seed_dispersion.png)
 
-It finishes at **+36.7%** against buy-and-hold's **+50.8%**, beating the benchmark in one
+It finishes at **+36.2%** against buy-and-hold's **+50.8%**, beating the benchmark in one
 window out of eight. More pointedly, it also finishes **below simply holding the NIFTY 50
 index** (+38.1%) — having traded actively the entire way.
 
@@ -114,12 +114,13 @@ The *diagnosis* is the useful part:
 |---|---|---|
 | **PPO_ensemble** | **0.993** | **99.2%** |
 | EqualWeight | 0.980 | 96.1% |
-| MaxSharpe | 0.770 | 45.4% |
+| MaxSharpe | 0.770 | 44.6% |
 
 The agent converged to holding the basket essentially all the time, then paid turnover for
 it. It is a costly reimplementation of the benchmark, not a strategy.
 
-**And that is not seed noise.** Median within-window seed standard deviation is **0.51%**.
+**And that is not seed noise.** Median within-window seed standard deviation is **0.50%**,
+and the mean best-to-worst spread within a window is 1.37%.
 Three independent runs agreeing that closely means the optimiser found what the reward was
 asking for — so the fix is not "train longer", it is to change the question. The reward is
 close to maximising log wealth with weak penalties, and full investment is very nearly its
