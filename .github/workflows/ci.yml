@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # The whole suite runs on synthetic fixtures -- no network, no market data, no
+      # RL stack. That is deliberate: a test suite that needs yfinance is a test suite
+      # that fails on someone else's machine for reasons unrelated to the code.
+      - name: Install core dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pandas scipy scikit-learn matplotlib pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff
+      - run: ruff check src tests scripts --output-format=github
+
+  notebook-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install nbstripout
+      # Committed notebook outputs are how a 93 KB file becomes 2.6 MB and how stale
+      # numbers outlive the code that produced them.
+      - name: Fail if any notebook has committed outputs
+        run: |
+          shopt -s nullglob
+          for nb in *.ipynb notebooks/*.ipynb; do
+            if ! nbstripout --verify "$nb"; then
+              echo "::error file=$nb::notebook has committed outputs; run 'nbstripout $nb'"
+              exit 1
+            fi
+          done

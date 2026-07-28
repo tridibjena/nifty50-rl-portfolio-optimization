@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nifty-rl"
+version = "0.1.0"
+description = "Regime-aware portfolio research on NIFTY 50 equities"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "yfinance>=0.2.40",
+    "pyarrow>=14.0",
+    "matplotlib>=3.7",
+    "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+# Phase 5 -- regime backends. The Gaussian HMM forward filter is implemented in-package
+# (see regimes/hmm.py) precisely so the causal contract is structural rather than
+# dependent on calling the right hmmlearn method; statsmodels/ruptures back the
+# Markov-switching and change-point backends.
+regimes = ["statsmodels>=0.14", "ruptures>=1.1"]
+
+# Phase 6 -- reinforcement learning. Confirm wheel availability for the target
+# interpreter before committing; the current environment is Python 3.9.6.
+rl = ["gymnasium>=0.29", "stable-baselines3[extra]>=2.2", "torch>=2.1", "shimmy>=1.3"]
+
+dev = ["pytest>=8.0", "nbstripout>=0.7", "ruff>=0.5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::urllib3.exceptions.NotOpenSSLWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

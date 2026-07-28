@@ -1,11 +1,42 @@
-yfinance>=0.2.40
-matplotlib>=3.7.0
-seaborn>=0.13.0
+# Core pipeline (Phases 0-4)
 numpy>=1.24.0
 pandas>=2.0.0
+scipy>=1.10.0
 scikit-learn>=1.3.0
+yfinance>=0.2.40
+pyarrow>=14.0.0          # parquet cache -- required for reproducible data snapshots
+matplotlib>=3.7.0
+seaborn>=0.13.0
+
+# Regime detection (Phase 5)
+statsmodels>=0.14.0      # Markov-switching regression backend
+ruptures>=1.1.0          # change-point (PELT) backend
+# NOTE: hmmlearn is deliberately NOT a dependency. Its predict() runs Viterbi over the
+# full sequence and predict_proba() returns forward-backward smoothed posteriors --
+# both use future information. The Gaussian HMM forward filter is implemented in
+# regimes/hmm.py so the causal guarantee is structural.
+
+# Reinforcement learning (Phase 6)
 gymnasium>=0.29.0
-stable-baselines3[extra]>=2.2.0
-shimmy>=1.3.0
+stable-baselines3>=2.2.0     # NOT [extra] -- see below
 torch>=2.1.0
-transformers>=4.35.0
+
+# WARNING: do not install `stable-baselines3[extra]` on macOS.
+# The extras pull in tensorboard, and SB3's logger imports torch.utils.tensorboard
+# whenever it is present. On macOS (torch 2.8 / Python 3.9) that import aborts the
+# interpreter outright:
+#
+#   libc++abi: terminating due to uncaught exception of type std::__1::system_error:
+#   mutex lock failed: Invalid argument
+#
+# It presents as a hang rather than an error under a test runner, which makes it
+# expensive to diagnose. Core SB3 needs neither tensorboard nor opencv; install the
+# plain package. If you want TensorBoard logging, run it in a separate environment.
+
+# Development
+pytest>=8.0.0
+nbstripout>=0.7.0
+
+# REMOVED: transformers -- the FinBERT pipeline was a stub returning zeros
+# (build_sentiment_series), so ~2 GB of dependencies were pulled in for dead code.
+# Sentiment is computed as -zscore(india_vix, 60d) in features.py.
