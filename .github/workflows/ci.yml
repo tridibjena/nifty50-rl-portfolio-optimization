@@ -50,13 +50,20 @@ jobs:
                   if any(k.startswith("image/") for k in out.get("data", {}))
               )
 
+              # Running the notebook draws every chart inline, which is the point -- but
+              # it also base64-encodes twenty images into the file, taking it from ~400 KB
+              # to ~3 MB. Committed that way, each rerun rewrites every image and the diff
+              # is unreadable. So: run it locally with the plots, commit it without them.
+              # The charts still show on GitHub, because the gallery cells reference
+              # assets/v2/ rather than embedding.
+              FIX = ("clear outputs before committing: "
+                     "jupyter nbconvert --clear-output --inplace notebooks/*.ipynb")
+
               problems = []
               if embedded:
-                  # Figures are written to assets/ and linked, never inlined. Inlining is
-                  # what turned an earlier copy of this project into a 2.6 MB diff.
-                  problems.append(f"{embedded} embedded image output(s)")
+                  problems.append(f"{embedded} embedded image output(s) -- {FIX}")
               if size_kb > LIMIT_KB:
-                  problems.append(f"{size_kb:.0f} KB exceeds the {LIMIT_KB} KB limit")
+                  problems.append(f"{size_kb:.0f} KB exceeds the {LIMIT_KB} KB limit -- {FIX}")
               if not cells:
                   problems.append("no cells")
 
