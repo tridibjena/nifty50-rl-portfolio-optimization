@@ -127,6 +127,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="PPO training steps per seed per window.",
     )
     parser.add_argument(
+        "--capital", type=float, default=None,
+        help="Starting capital in rupees. Changes real results, not just the scale: "
+             "integer share sizing leaves proportionally less idle cash at larger sizes.",
+    )
+    parser.add_argument(
         "--live", action="store_true",
         help="Ignore the pinned end_date and pull data up to today. Results will "
              "no longer match the published figures.",
@@ -145,6 +150,9 @@ def parse_args(argv=None) -> argparse.Namespace:
 def main(args: argparse.Namespace = None) -> None:
     args = args or parse_args([])
     cfg = RunConfig()
+    if args.capital:
+        cfg = cfg.with_(backtest=replace(cfg.backtest, initial_cash=args.capital))
+        log(f"      capital: Rs{args.capital:,.0f}")
     if args.live:
         cfg = cfg.with_(data=replace(cfg.data, end_date=None))
         log("      NOTE: --live ignores the pinned snapshot; results will drift.")

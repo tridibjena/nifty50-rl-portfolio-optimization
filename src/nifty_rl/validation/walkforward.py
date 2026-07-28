@@ -339,7 +339,7 @@ def walk_forward_evaluate(
     pooled_regimes = pd.concat([r.regime_labels for r in results])
     pooled_regimes = pooled_regimes[~pooled_regimes.index.duplicated(keep="first")].sort_index()
 
-    summary = aggregate_windows(per_window, pooled_returns, metrics_cfg)
+    summary = aggregate_windows(per_window, pooled_returns, metrics_cfg, cfg.initial_cash)
 
     return WalkForwardReport(
         windows=results,
@@ -374,8 +374,15 @@ def aggregate_windows(
     per_window: pd.DataFrame,
     pooled_returns: Mapping[str, pd.Series],
     metrics_cfg: MetricsConfig,
+    initial_capital: float = 0.0,
 ) -> pd.DataFrame:
-    """Per-strategy consistency across windows plus pooled out-of-sample statistics."""
+    """Per-strategy consistency across windows plus pooled out-of-sample statistics.
+
+    ``initial_capital`` adds terminal-wealth columns. A Sharpe ratio answers "was the
+    risk worth taking"; it does not answer "what would I have". Both belong in the same
+    table, because a strategy can win on one and lose on the other -- and the currency
+    figure is the one a non-specialist reads first.
+    """
     rf_daily = (
         (1.0 + metrics_cfg.risk_free_annual) ** (1.0 / metrics_cfg.trading_days) - 1.0
         if metrics_cfg.risk_free_annual > 0
@@ -392,11 +399,21 @@ def aggregate_windows(
         )
         pooled_total = float((1.0 + pooled).prod() - 1.0) if pooled is not None else np.nan
 
+        years = len(pooled) / metrics_cfg.trading_days if pooled is not None else np.nan
+        cagr = (
+            (1.0 + pooled_total) ** (1.0 / years) - 1.0
+            if np.isfinite(pooled_total) and np.isfinite(years) and years > 0
+            else np.nan
+        )
+
         rows.append(
             {
                 "strategy": name,
                 "n_windows": int(group["window"].nunique()),
                 "pooled_total_return": pooled_total,
+                "final_value": initial_capital * (1.0 + pooled_total),
+                "profit": initial_capital * pooled_total,
+                "cagr": cagr,
                 "pooled_sharpe": pooled_sharpe,
                 "mean_window_return": float(group["total_return"].mean()),
                 "median_window_return": float(group["total_return"].median()),
