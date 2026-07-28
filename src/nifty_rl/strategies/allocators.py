@@ -11,7 +11,7 @@ sum to one. Estimation never sees beyond the rebalance date.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict
 
 import numpy as np
 import pandas as pd
@@ -143,12 +143,18 @@ def risk_parity(returns: pd.DataFrame, shrinkage: bool = True, iterations: int =
 
     w = np.ones(n) / n
     for _ in range(iterations):
+        # Risk contribution of asset i = w_i * (Cov @ w)_i. These sum to portfolio
+        # variance, so an equal split means each asset supplies `total / n` of the risk.
         marginal = cov @ w
         contribution = w * marginal
         total = contribution.sum()
         if total <= 0 or not np.isfinite(total):
             break
         target = total / n
+        # Nudge each weight toward its target: an asset contributing more risk than its
+        # share gets scaled down. The square root damps the step -- because changing w_i
+        # also changes every other asset's contribution, the full correction overshoots
+        # and oscillates instead of converging.
         w = w * (target / np.maximum(contribution, 1e-18)) ** 0.5
         w = np.clip(w, 1e-12, None)
         w = w / w.sum()
@@ -159,12 +165,19 @@ def risk_parity(returns: pd.DataFrame, shrinkage: bool = True, iterations: int =
 
 
 def _inverse_variance_weights(cov: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    """Weight the assets in one cluster inversely to their variance, summing to 1."""
     sub = cov[np.ix_(indices, indices)]
     ivp = 1.0 / np.maximum(np.diag(sub), 1e-18)
     return ivp / ivp.sum()
 
 
 def _cluster_variance(cov: np.ndarray, indices: np.ndarray) -> float:
+    """Variance a cluster would have if held at inverse-variance weights.
+
+    This is how HRP compares two candidate halves without inverting anything: it asks
+    "how risky is this bundle if allocated sensibly inside itself?" and splits the
+    parent's weight against the answer.
+    """
     w = _inverse_variance_weights(cov, indices)
     sub = cov[np.ix_(indices, indices)]
     return float(w @ sub @ w)
@@ -193,25 +206,41 @@ def hierarchical_risk_parity(returns: pd.DataFrame) -> pd.Series:
     corr = np.nan_to_num(corr, nan=0.0)
     np.fill_diagonal(corr, 1.0)
 
-    # Correlation distance, then the Euclidean distance between distance vectors.
+    # Step 1 -- tree clustering. Turn correlation into a distance so that highly
+    # correlated names sit close together: perfectly correlated -> 0, uncorrelated ->
+    # 0.71, perfectly opposed -> 1. Single-linkage clustering then orders the assets so
+    # that similar ones are adjacent.
     distance = np.sqrt(np.clip((1.0 - corr) / 2.0, 0.0, 1.0))
     np.fill_diagonal(distance, 0.0)
     condensed = squareform(distance, checks=False)
+
+    # Step 2 -- quasi-diagonalisation. `order` is the leaf order of the tree, e.g. the
+    # two banks land beside each other rather than at opposite ends. Bisecting this
+    # ordering therefore splits the portfolio along genuine similarity lines.
     order = leaves_list(linkage(condensed, method="single"))
 
+    # Step 3 -- recursive bisection. Start with all assets in one cluster holding 100% of
+    # the weight. Repeatedly cut each cluster in half and divide its weight between the
+    # two halves in inverse proportion to their variance: the calmer half gets more. Each
+    # asset's final weight is the product of every split it survived.
     weights = np.ones(n)
     clusters = [order]
     while clusters:
+        # Split every multi-asset cluster down the middle. Single assets have nothing
+        # left to divide, so they drop out and the loop ends when all clusters are.
         clusters = [
             half
             for cluster in clusters
-            for half in (cluster[: len(cluster) // 2], cluster[len(cluster) // 2 :])
             if len(cluster) > 1
+            for half in (cluster[: len(cluster) // 2], cluster[len(cluster) // 2 :])
         ]
-        for i in range(0, len(clusters), 2):
-            left, right = clusters[i], clusters[i + 1]
+        # Halves are appended in order, so consecutive pairs are always siblings.
+        for left, right in zip(clusters[::2], clusters[1::2]):
             var_left = _cluster_variance(cov, left)
             var_right = _cluster_variance(cov, right)
+            # alpha is the share going to the left sibling. Note the inversion: a *high*
+            # left variance makes the fraction large, so alpha shrinks and the riskier
+            # half is scaled down. The two shares sum to 1, conserving parent weight.
             alpha = 1.0 - var_left / (var_left + var_right + 1e-18)
             weights[left] *= alpha
             weights[right] *= 1.0 - alpha

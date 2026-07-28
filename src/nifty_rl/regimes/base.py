@@ -22,14 +22,28 @@ which the online detectors' *detection lag* is measured. Mixing the two is the m
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
 
 class RegimeDetector(ABC):
-    """Base class for online (causal) regime detectors."""
+    """Base class for online (causal) regime detectors.
+
+    Subclasses implement exactly two private methods and inherit everything else:
+
+    * ``_fit(X)`` — estimate parameters from a training matrix. May use the whole block;
+      this is parameter estimation on data the model is allowed to see.
+    * ``_filter(X)`` — return filtered probabilities where **row t depends only on rows
+      0..t**. This is the load-bearing contract of the entire package.
+
+    Splitting them this way is what makes causality checkable. The public methods
+    (:meth:`predict_online`, :meth:`label_online`) route only through ``_filter``, so no
+    subclass can accidentally expose a smoothed or Viterbi path as if it were live — and
+    :func:`assert_causal` can verify any implementation by re-running it on prefixes and
+    checking that past labels never change.
+    """
 
     #: Human-readable name used in reports and figures.
     name: str = "base"
@@ -64,6 +78,14 @@ class RegimeDetector(ABC):
         return np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
 
     def fit(self, X: pd.DataFrame) -> "RegimeDetector":
+        """Estimate parameters, remembering which columns were used.
+
+        Pinning ``feature_columns`` on the first fit means a later call with differently
+        ordered or extra columns raises instead of silently feeding the model a different
+        feature in each slot -- a failure that produces plausible labels and invalid
+        results. The row-count guard exists for the same reason: fitting three regimes on
+        twenty days succeeds numerically and means nothing.
+        """
         if self.feature_columns is None:
             self.feature_columns = list(X.columns)
         matrix = self._matrix(X)

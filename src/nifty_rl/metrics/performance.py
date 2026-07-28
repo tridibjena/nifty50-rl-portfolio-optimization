@@ -23,7 +23,7 @@ Fixes carried over from the notebook:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -196,6 +196,19 @@ def signal_accuracy_per_ticker(
 
 @dataclass
 class PerformanceMetrics:
+    """One strategy's descriptive record over one evaluation window.
+
+    Deliberately wide. A single headline number invites cherry-picking, and these
+    measure genuinely different things -- ``Sharpe`` penalises upside volatility while
+    ``Sortino`` does not, ``max_drawdown`` records the worst moment while ``ulcer_index``
+    records how long the pain lasted, and ``exposure`` is what reveals that a
+    flattering risk-adjusted figure came from sitting in cash.
+
+    These are all *descriptive*: they summarise what happened. Whether any of it is
+    distinguishable from luck is a separate question, answered in
+    :mod:`nifty_rl.metrics.stats`.
+    """
+
     strategy: str
     final_equity: float
     total_return: float

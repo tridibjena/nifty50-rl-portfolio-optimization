@@ -23,7 +23,6 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Sequence
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 
 # --------------------------------------------------------------------- categorical
 

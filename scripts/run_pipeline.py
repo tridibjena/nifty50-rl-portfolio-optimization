@@ -23,7 +23,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
@@ -62,6 +61,12 @@ from nifty_rl.regimes import (
     standardise_causally,
 )
 from nifty_rl.report import figures
+from nifty_rl.report.narrate import (
+    extract_episodes,
+    narrate,
+    openrouter_provider,
+    to_markdown,
+)
 from nifty_rl.report.build import write_results
 from nifty_rl.strategies.allocators import ALLOCATORS
 from nifty_rl.strategies.meta import default_exposure_ladder, performance_by_regime
@@ -139,6 +144,17 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--train-days", type=int, default=TRAIN_DAYS,
         help="Initial training block length, in trading days.",
+    )
+    parser.add_argument(
+        "--narrate-llm", action="store_true",
+        help="Attach LLM commentary to each regime episode via OpenRouter. Requires "
+             "$OPENROUTER_API_KEY. Presentation only -- it never enters a feature or a "
+             "model input, and it does not change a single number in the results.",
+    )
+    parser.add_argument(
+        "--narrate-model", default=None,
+        help="OpenRouter model id for --narrate-llm. Defaults to $OPENROUTER_MODEL, "
+             "then to the built-in default.",
     )
     parser.add_argument(
         "--test-days", type=int, default=TEST_DAYS,
@@ -236,6 +252,35 @@ def main(args: argparse.Namespace = None) -> None:
     log(f"      refit stability: mean kappa vs previous fit = {mean_kappa:.3f}")
 
     market = price_matrix(panel).mean(axis=1)
+
+    # Commentary for readers. Written to its own artefact and never joined into the
+    # feature panel -- see report/narrate.py for why that boundary is enforced.
+    narration_provider = None
+    if getattr(args, "narrate_llm", False):
+        # Construct before the run so a missing key fails immediately rather than
+        # degrading every episode to the fallback and looking like it worked.
+        narration_provider = openrouter_provider(model=args.narrate_model)
+
+    episodes = narrate(
+        extract_episodes(
+            primary_labels, market.pct_change().dropna(),
+            regime_names=primary_names, min_days=10,
+        ),
+        provider=narration_provider,
+    )
+    episodes.to_csv(RESULTS / "regime_narration.csv", index=False)
+    (RESULTS / "regime_narration.md").write_text(to_markdown(episodes))
+
+    sources = episodes["source"].value_counts().to_dict() if len(episodes) else {}
+    n_llm = int(sources.get("llm", 0))
+    if narration_provider is None:
+        log(f"      {len(episodes)} regime episodes narrated (source: data, no model)")
+    else:
+        # Report the split rather than just "done": a silent fallback to data on most
+        # episodes means the key or the model id is wrong, and that should be visible.
+        log(f"      {len(episodes)} regime episodes narrated "
+            f"({n_llm} from the model, {int(sources.get('data', 0))} data-only fallback)")
+
     regime_econ = regime_conditional_stats(
         market.pct_change().dropna(), primary_labels, regime_names=primary_names
     )
@@ -245,6 +290,14 @@ def main(args: argparse.Namespace = None) -> None:
     # ------------------------------------------------------- 4. allocator weights
     log("[4/7] Building allocator weight schedules ...")
     prices = price_matrix(panel)
+
+    # The actual NIFTY 50 index. Until now the "benchmark" was buy-and-hold of the ten
+    # selected names, which answers a different question: it cannot say whether picking
+    # those ten beat simply buying the index.
+    nifty_returns = panel.groupby("Date")["benchmark_return"].first().astype(float)
+    nifty_returns.index = pd.to_datetime(nifty_returns.index)
+    log(f"      NIFTY 50 index reference: {nifty_returns.notna().sum()} daily observations")
+
     allocator_weights = {}
     for name, allocator in ALLOCATORS.items():
         weights = build_allocator_weights(prices, allocator, lookback=252, frequency="ME")
@@ -279,6 +332,7 @@ def main(args: argparse.Namespace = None) -> None:
         test_days=test_days,
         step_days=step_days,
         expanding=True,
+        reference_series={"NIFTY50_Index": nifty_returns},
         rl_config=None if args.no_rl else RLConfig(
             features=RL_FEATURES,
             seeds=tuple(range(args.seeds)),

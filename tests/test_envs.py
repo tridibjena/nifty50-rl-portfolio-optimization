@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nifty_rl.backtest.costs import BUY, SELL, FlatCostModel
+from nifty_rl.backtest.costs import FlatCostModel
 from nifty_rl.config import BacktestConfig, CostConfig
 from nifty_rl.envs.core import PortfolioSimulator
 from nifty_rl.envs.panel import build_panel_arrays

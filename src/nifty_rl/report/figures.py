@@ -18,7 +18,7 @@ Conventions enforced here:
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -564,7 +564,6 @@ def allocation_area(
     logged weights, so it shows what the policy actually did.
     """
     apply_theme(mode)
-    c = chrome(mode)
 
     columns = list(weights.columns)
     if len(columns) > 8:

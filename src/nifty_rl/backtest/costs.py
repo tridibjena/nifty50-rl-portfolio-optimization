@@ -29,6 +29,13 @@ class CostModel(ABC):
         """Total round-of-one-side cost as a fraction of notional."""
 
     def fill_price(self, side: str, price: float, quantity: float, adv_value: Optional[float] = None) -> float:
+        """The price actually paid or received per share, costs included.
+
+        Costs are folded into the price rather than deducted separately: a buy fills
+        *above* the quoted price and a sell *below* it. Callers therefore cannot forget
+        to apply them, and the same helper serves both backtesters and the RL
+        environment, so every strategy is charged on identical terms.
+        """
         rate = self.cost_rate(side, price, quantity, adv_value)
         if side == BUY:
             return price * (1.0 + rate)
@@ -71,6 +78,14 @@ class IndiaEquityCostModel(CostModel):
         self.cfg = cfg
 
     def cost_rate(self, side: str, price: float, quantity: float, adv_value: Optional[float] = None) -> float:
+        """Total one-side cost as a fraction of the order's rupee value.
+
+        Everything is converted to a *rate* so it can be folded into the fill price.
+        Note that brokerage is the one charge that is not a pure rate -- it is capped at
+        Rs20 per order, so dividing by notional makes its effective rate fall as the
+        order grows. That is why a Rs10 lakh portfolio is charged proportionally less
+        than a Rs1 lakh one, and part of why the published figures use the larger amount.
+        """
         cfg = self.cfg
         notional = max(price * quantity, 1e-12)
 
@@ -79,8 +94,10 @@ class IndiaEquityCostModel(CostModel):
 
         exchange = cfg.exchange_txn_rate
         sebi = cfg.sebi_turnover_rate
+        # GST applies to the intermediary's fees, not to the statutory taxes below.
         gst = cfg.gst_rate * (brokerage + exchange + sebi)
 
+        # STT is charged on both sides; stamp duty only on purchases.
         if side == BUY:
             statutory = cfg.stt_buy + cfg.stamp_duty_buy
         elif side == SELL:

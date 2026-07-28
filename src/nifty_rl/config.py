@@ -107,7 +107,10 @@ class CostConfig:
 class BacktestConfig:
     """Portfolio backtester behaviour."""
 
-    initial_cash: float = 100_000.0
+    # Rs10 lakh. At Rs1 lakh, integer share sizing strands ~2% of capital as
+    # unbuyable fractions; at Rs10 lakh that drops to ~0.5%, so the published
+    # figures reflect the strategies rather than the lot-size friction.
+    initial_cash: float = 1_000_000.0
     stop_loss: Optional[float] = 0.06
     take_profit: Optional[float] = 0.12
 

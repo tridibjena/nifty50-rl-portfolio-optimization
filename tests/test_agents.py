@@ -7,7 +7,6 @@ a stub policy, without a training loop or the RL stack.
 
 from __future__ import annotations
 
-from typing import List
 
 import numpy as np
 import pandas as pd

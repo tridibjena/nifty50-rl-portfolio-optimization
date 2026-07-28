@@ -62,17 +62,15 @@ def build_results_markdown(
     econ = _read(results_dir / "regime_economics.csv")
     selection = _read(results_dir / "regime_model_selection.csv")
 
-    invested = wf[wf["strategy"] != "RSI_35_60"] if "strategy" in wf.columns else wf
     n_positive = int((wf["pooled_total_return"] > 0).sum()) if not wf.empty else 0
-    n_beat = (
-        int((wf["windows_beating_benchmark"] > 0.5).sum()) if "windows_beating_benchmark" in wf else 0
-    )
 
     wf_table = _table(
         wf,
-        ["strategy", "pooled_total_return", "pooled_sharpe", "windows_positive",
-         "windows_beating_benchmark", "worst_window_return", "mean_max_drawdown", "mean_exposure"],
-        {"pooled_total_return": "{:.1%}", "pooled_sharpe": "{:.2f}",
+        ["strategy", "final_value", "profit", "pooled_total_return", "cagr", "pooled_sharpe",
+         "windows_positive", "windows_beating_benchmark", "worst_window_return",
+         "mean_max_drawdown", "mean_exposure"],
+        {"final_value": "{:,.0f}", "profit": "{:,.0f}", "cagr": "{:.1%}",
+         "pooled_total_return": "{:.1%}", "pooled_sharpe": "{:.2f}",
          "windows_positive": "{:.0%}", "windows_beating_benchmark": "{:.0%}",
          "worst_window_return": "{:.1%}", "mean_max_drawdown": "{:.1%}",
          "mean_exposure": "{:.0%}"},
@@ -230,6 +228,21 @@ the honest statement today is that a PPO allocator trained this way does not bea
 max-Sharpe rebalancing, or equal weight, or holding the basket.
 """
 
+    narration_path = results_dir / "regime_narration.md"
+    narration_section = ""
+    if narration_path.exists():
+        narration_section = f"""
+### Episode timeline
+
+Each detected episode with the market context that produced it. Commentary is generated
+**after** the run for readability, written to its own artefact, and never joined into any
+feature, observation or model input — an enforcement checked by
+`tests/test_narration.py`. An LLM's weights encode what happened after the period it
+describes, so commentary-as-feature would be lookahead that no prefix test can catch.
+
+{narration_path.read_text().strip()}
+"""
+
     window_spans = ""
     if not per_window.empty:
         spans = (
@@ -368,6 +381,7 @@ boundaries: **{_fmt(summary['regime_refit_kappa'], '{:.3f}')}**. Low agreement w
 state definitions drift between refits, making regime-conditioned results incomparable
 across time.
 
+{narration_section}
 ![Detector agreement]({rel}/regime_agreement.png)
 
 ![Transition matrix]({rel}/regime_transitions.png)

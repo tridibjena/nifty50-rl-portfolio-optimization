@@ -20,7 +20,7 @@ White (2000), "A Reality Check for Data Snooping".
 from __future__ import annotations
 
 from itertools import combinations
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,16 @@ _DEGENERATE_VOL = 1e-10
 def sharpe_from_returns(
     returns: np.ndarray, trading_days: int = 252, risk_free_daily: float = 0.0
 ) -> float:
+    """Annualised Sharpe ratio from a daily return array.
+
+    The plain-array counterpart of :func:`metrics.performance.sharpe_ratio`, kept
+    separate because the bootstrap calls it a few million times and pandas overhead
+    would dominate.
+
+    Returns NaN, not a large number, when the series has no dispersion. An all-cash
+    portfolio earning a constant daily rate has an *undefined* Sharpe; computing it
+    anyway produced a headline figure of 2.1e13 in an earlier run.
+    """
     r = np.asarray(returns, dtype=float)
     r = r[np.isfinite(r)]
     if len(r) < 2:
@@ -85,10 +95,17 @@ def expected_maximum_sharpe(n_trials: int, sharpe_variance: float) -> float:
 
     This is the bar the *best* strategy must clear. Testing the winner of 50 trials
     against zero instead of against this is the core data-snooping error.
+
+    Try 50 worthless strategies and the luckiest will still post a respectable Sharpe --
+    that is arithmetic, not skill. The formula is the standard extreme-value
+    approximation to the expected maximum of ``n_trials`` normal draws, so the bar rises
+    with both the number of attempts and how much the attempts disagree with each other.
     """
     if n_trials < 2 or sharpe_variance <= 0:
         return 0.0
     sd = np.sqrt(sharpe_variance)
+    # Two quantiles of the standard normal, blended by the Euler-Mascheroni constant.
+    # This weighting is what makes the approximation accurate for finite n_trials.
     a = stats.norm.ppf(1.0 - 1.0 / n_trials)
     b = stats.norm.ppf(1.0 - 1.0 / (n_trials * np.e))
     return float(sd * ((1.0 - EULER_MASCHERONI) * a + EULER_MASCHERONI * b))
@@ -141,6 +158,13 @@ def stationary_bootstrap_indices(
 
     An IID bootstrap on daily returns destroys the autocorrelation and volatility
     clustering that drive drawdowns, so its confidence intervals come out far too tight.
+
+    Instead of shuffling single days, this walks forward through the original series in
+    contiguous runs, jumping to a random new day with probability ``1 / mean_block``.
+    Runs therefore have geometric lengths averaging ``mean_block`` (21 days here, about a
+    month), which preserves the local structure -- a volatile stretch resamples as a
+    volatile stretch. Randomising the run length rather than fixing it is what keeps the
+    resampled series stationary, hence the name.
     """
     p = 1.0 / max(mean_block, 1.0)
     indices = np.empty(n_obs, dtype=int)
@@ -148,9 +172,9 @@ def stationary_bootstrap_indices(
     for t in range(n_obs):
         indices[t] = current
         if rng.random() < p:
-            current = rng.integers(0, n_obs)
+            current = rng.integers(0, n_obs)  # start a new block
         else:
-            current = (current + 1) % n_obs
+            current = (current + 1) % n_obs  # continue this one; wrap at the end
     return indices
 
 
@@ -217,6 +241,10 @@ def probability_of_backtest_overfitting(
     half = n_splits // 2
     logits: List[float] = []
 
+    # "Combinatorially symmetric": try every way of dealing half the blocks to in-sample
+    # and half to out-of-sample. With 10 blocks that is 252 partitions, each giving one
+    # verdict on whether picking the in-sample winner paid off out-of-sample. Using every
+    # partition rather than one arbitrary split is what makes the estimate stable.
     for in_sample_ids in combinations(range(n_splits), half):
         out_ids = [i for i in range(n_splits) if i not in in_sample_ids]
         in_sample = pd.concat([blocks[i] for i in in_sample_ids])
@@ -227,10 +255,15 @@ def probability_of_backtest_overfitting(
         if in_sharpes.isna().all() or out_sharpes.isna().all():
             continue
 
+        # Pick the winner in-sample, then look up where it actually placed out-of-sample.
+        # omega is its percentile rank there: 1.0 = still best, 0.5 = median, 0.0 = worst.
         winner = in_sharpes.idxmax()
         ranks = out_sharpes.rank(pct=True)
         omega = float(ranks[winner])
-        omega = min(max(omega, 1e-6), 1 - 1e-6)
+        omega = min(max(omega, 1e-6), 1 - 1e-6)  # keep the log finite at the extremes
+        # The logit maps the rank onto the whole real line, so "bottom half" becomes the
+        # clean test `logit <= 0`. It also spreads out the tails, which keeps the median
+        # below from being dominated by ranks bunched near 1.
         logits.append(float(np.log(omega / (1 - omega))))
 
     if not logits:
@@ -267,14 +300,22 @@ def whites_reality_check(
     excess = aligned.to_numpy() - benchmark[:, None]
     n_obs = len(excess)
 
+    # The statistic is each strategy's mean excess return over the benchmark, scaled by
+    # sqrt(n) so it has a stable distribution as the sample grows. Take the best one.
     observed = np.sqrt(n_obs) * excess.mean(axis=0)
     best_index = int(np.argmax(observed))
     best_statistic = float(observed[best_index])
 
     rng = np.random.default_rng(seed)
+    # Subtracting each column's mean imposes the null hypothesis: no strategy beats the
+    # benchmark. Resampling the *centred* series therefore shows how large a maximum
+    # arises from luck alone when nothing has genuine edge. Skipping this step would
+    # bake the observed outperformance into the null and the test would never reject.
     centred = excess - excess.mean(axis=0)
     null_max = np.empty(n_boot)
     for b in range(n_boot):
+        # Taking the max across strategies on every draw is what handles multiplicity:
+        # the null distribution is of the *best of many*, not of any single strategy.
         idx = stationary_bootstrap_indices(n_obs, mean_block, rng)
         null_max[b] = np.max(np.sqrt(n_obs) * centred[idx].mean(axis=0))
 

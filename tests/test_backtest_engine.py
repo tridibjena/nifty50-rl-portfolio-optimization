@@ -7,7 +7,6 @@ crash, the test drives both configurations and asserts they differ.
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 

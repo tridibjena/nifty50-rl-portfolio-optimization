@@ -33,6 +33,13 @@ torch>=2.1.0
 # expensive to diagnose. Core SB3 needs neither tensorboard nor opencv; install the
 # plain package. If you want TensorBoard logging, run it in a separate environment.
 
+# Notebook generation (scripts/build_notebook.py)
+# Only needed to regenerate notebooks/01_walkthrough.ipynb. The pipeline, the tests and
+# every published number are produced without these -- the notebook is a narrative view
+# of artefacts the pipeline has already written, not a step in computing them.
+nbformat>=5.9.0
+nbconvert>=7.0.0         # required only for `build_notebook.py --execute`
+
 # Development
 pytest>=8.0.0
 nbstripout>=0.7.0

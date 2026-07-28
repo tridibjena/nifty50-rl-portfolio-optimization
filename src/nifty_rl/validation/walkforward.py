@@ -59,6 +59,13 @@ class RLConfig:
 
 @dataclass
 class WindowSpec:
+    """One window's date boundaries. Dates only -- no data, no results.
+
+    Separated from the data so the schedule can be inspected and asserted on before any
+    expensive fitting happens: the cheapest way to catch a train/test overlap is to look
+    at the calendar, not the returns.
+    """
+
     index: int
     train_dates: pd.DatetimeIndex
     test_dates: pd.DatetimeIndex
@@ -82,6 +89,13 @@ class WindowSpec:
 
 @dataclass
 class WindowResult:
+    """Everything one window produced, out-of-sample.
+
+    ``selected_strategy`` is what the *training* block chose, recorded per window because
+    watching that choice change over time is itself a finding -- a selection rule that
+    picks a different winner every refit is not a strategy, it is noise chasing.
+    """
+
     spec: WindowSpec
     metrics: pd.DataFrame
     returns: Dict[str, pd.Series]
@@ -92,6 +106,16 @@ class WindowResult:
 
 @dataclass
 class WalkForwardReport:
+    """The complete evaluation, at two levels of aggregation.
+
+    ``per_window`` answers "was this consistent?" and ``pooled_returns`` answers "what
+    would it have made?". Both are needed: a strategy carried entirely by one lucky
+    window has a respectable pooled figure and an obviously fragile per-window record.
+
+    ``summary`` is the leaderboard built from the pooled series -- the table that goes in
+    the report.
+    """
+
     windows: List[WindowResult]
     per_window: pd.DataFrame
     pooled_returns: Dict[str, pd.Series]
@@ -131,6 +155,30 @@ def rolling_windows(
         index += 1
 
     return specs
+
+
+def reference_result(
+    name: str,
+    returns: pd.Series,
+    dates: pd.DatetimeIndex,
+    initial_cash: float,
+) -> BacktestResult:
+    """Wrap an exogenous return series (e.g. the NIFTY 50 index) as a BacktestResult.
+
+    A passive index is the reference every equity strategy is implicitly claiming to
+    improve on, so it belongs in the same table rather than in a footnote. It is fully
+    invested by construction and trades nothing, which is exactly the point.
+    """
+    block = returns.reindex(dates).fillna(0.0)
+    equity = initial_cash * (1.0 + block).cumprod()
+    return BacktestResult(
+        strategy=name,
+        equity=equity,
+        positions=pd.Series(1, index=dates, name="position"),
+        trades=pd.DataFrame(),
+        per_ticker_positions={},
+        weights=None,
+    )
 
 
 def _select_on_train(
@@ -180,9 +228,43 @@ def walk_forward_evaluate(
     step_days: int = 125,
     expanding: bool = True,
     rl_config: Optional["RLConfig"] = None,
+    reference_series: Optional[Mapping[str, pd.Series]] = None,
     progress: Optional[Callable[[str], None]] = None,
 ) -> WalkForwardReport:
-    """Run the full rolling evaluation."""
+    """Run the full rolling evaluation — the outer loop of the whole project.
+
+    For each window: refit everything on the training block, run every strategy on the
+    test block with those decisions frozen, then roll forward. Nothing fitted inside a
+    window ever sees that window's test block.
+
+    What gets refit per window, and why each one matters:
+
+    * **The regime detector** — refit from scratch, then labelled with ``label_online``
+      (forward filter only). Refitting is the honest test: if "state 0" changes meaning
+      between windows, regime-conditioned results are not comparable across time.
+    * **The strategy choice** (``Selected_OOS``) — ``_select_on_train`` picks the best
+      rule on the *training* block. This is the decision a real desk makes at each refit,
+      and running it inside the loop is what stops the leaderboard from being a
+      hindsight pick. It is usually the most sobering row in the table.
+    * **PPO** — retrained from scratch, several seeds, with feature scaling fitted on the
+      training block alone.
+
+    Allocator weights arrive pre-built because they are already causal by construction:
+    each row is computed from a trailing window ending at that rebalance date.
+
+    Two config objects rather than one: ``passive_cfg`` strips stop-loss and take-profit
+    so the buy-and-hold benchmark is genuinely passive. Leaving them on gave "BuyHold" an
+    exit rule, which is a different strategy wearing the benchmark's name.
+
+    Strategies that fail on a given window are skipped rather than crashing the run —
+    a degenerate fit in one window should not discard seven good ones — but a window with
+    no benchmark result is dropped entirely, since every metric is relative to it.
+
+    Returns a :class:`WalkForwardReport` whose ``pooled_returns`` is the headline: every
+    out-of-sample block concatenated into one continuous track record. Per-window numbers
+    show consistency; the pooled series is what the strategy would actually have returned,
+    and it is the only thing worth putting a confidence interval on.
+    """
     log = progress or (lambda _msg: None)
     passive_cfg = passive_cfg or cfg
 
@@ -283,6 +365,12 @@ def walk_forward_evaluate(
                     )
                 except Exception:
                     continue
+
+        # --- passive references (index buy-and-hold), fully invested, no trading
+        for ref_name, ref_returns in (reference_series or {}).items():
+            window_results[ref_name] = reference_result(
+                ref_name, ref_returns, spec.test_dates, cfg.initial_cash
+            )
 
         # --- PPO, retrained from scratch on this window's training block
         if rl_config is not None:

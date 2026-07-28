@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import make_panel, make_ticker_frame
+from conftest import make_ticker_frame
 
 from nifty_rl.data import ffill_by_ticker
 from nifty_rl.features import CORE_FEATURES, add_features, wilder_rsi

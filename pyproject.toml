@@ -45,3 +45,16 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
+# Stated explicitly rather than relying on the default. CI installs the newest ruff, so
+# an implicit rule set means a ruff release can turn the lint job red without a single
+# line of this project changing. These are pyflakes plus the pycodestyle errors that
+# indicate real mistakes -- unused names, undefined names, broken syntax.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# The scripts prepend src/ to sys.path so they run from a clean checkout without an
+# editable install. That has to happen before the nifty_rl imports, so module-level
+# imports are legitimately not all at the top.
+"scripts/*.py" = ["E402"]

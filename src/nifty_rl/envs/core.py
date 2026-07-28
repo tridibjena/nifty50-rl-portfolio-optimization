@@ -29,8 +29,8 @@ Fixes carried over from the notebook's ``MultiStockPPOEnv``:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import List, Optional
 
 import numpy as np
 
@@ -42,6 +42,15 @@ from .rewards import RewardFunction, ShapedReward
 
 @dataclass
 class StepInfo:
+    """Diagnostics emitted alongside every step. Not part of the observation.
+
+    The agent never sees these -- they exist so a trained policy can be *described*
+    rather than only scored. ``gross_exposure`` and ``hhi`` are what revealed this
+    project's central finding: PPO settled at 99% invested with a correlation of 0.993
+    to buy-and-hold, meaning it had learned to be the benchmark while paying turnover.
+    Without logging behaviour per step, that shows up only as a slightly worse number.
+    """
+
     net_worth: float
     cash: float
     n_positions: int
@@ -82,6 +91,13 @@ class PortfolioSimulator:
     # ------------------------------------------------------------------- lifecycle
 
     def reset(self) -> np.ndarray:
+        """Return to day 0, fully in cash, and clear all history.
+
+        The reward function is reset too. Rewards here are stateful -- the differential
+        Sharpe reward carries running return moments -- so a stale estimate from the
+        previous episode would leak across the boundary and score the first steps of a
+        new episode against the last episode's volatility.
+        """
         self.i = 0
         self.cash = float(self.cfg.initial_cash)
         self.shares = np.zeros(self.n, dtype=np.float64)
@@ -112,6 +128,17 @@ class PortfolioSimulator:
 
     @staticmethod
     def softmax(action: np.ndarray) -> np.ndarray:
+        """Turn a raw action vector into long-only weights summing to 1.
+
+        This is how the action space stays unconstrained -- PPO emits any real numbers it
+        likes and the portfolio constraints are imposed here, rather than by asking the
+        optimiser to respect a simplex. The last element is the cash weight, so choosing
+        to hold cash is an ordinary action rather than a special case.
+
+        Subtracting the maximum before exponentiating changes nothing mathematically and
+        prevents ``exp`` overflowing on a large action. A degenerate vector falls back to
+        100% cash, which is the safe default -- never an accidental leveraged position.
+        """
         a = np.asarray(action, dtype=np.float64).ravel()
         a = a - a.max()
         e = np.exp(a)
@@ -149,6 +176,33 @@ class PortfolioSimulator:
     # ------------------------------------------------------------------------ step
 
     def step(self, action: np.ndarray):
+        """Advance one trading day.
+
+        ``action`` is a raw vector of length ``n_tickers + 1``; softmax turns it into
+        target weights over the stocks plus cash, so the agent cannot request weights
+        that fail to sum to 1 or go short.
+
+        The order of operations matters and each step is here for a reason:
+
+        1. **Convert the action to target weights** and apply the position cap.
+        2. **Credit interest** on idle cash.
+        3. **Work out the gap** between target and current holdings, in rupees. Tickers
+           with no data today are frozen — ``delta`` is zeroed rather than traded.
+        4. **Sell, then buy.** Two separate passes. Interleaving them means a sale of the
+           ninth stock cannot fund a purchase of the first, so target weights become
+           unreachable and whichever tickers sit early in the list get funding priority.
+        5. **Buys are pro-rated** against the cash that now exists, so an over-ambitious
+           target degrades proportionally instead of filling the first few names and
+           starving the rest.
+        6. **Advance the day, then revalue** at the next close. Trades execute at today's
+           prices; the profit or loss shows up tomorrow. Revaluing at today's prices
+           would let the agent bank a move it could not have known about.
+        7. **Observe realised weights**, not requested ones — integer share sizing and
+           partial fills mean the two differ, and the agent must see what it actually
+           holds.
+
+        Returns the gymnasium 5-tuple ``(obs, reward, terminated, truncated, info)``.
+        """
         prices = self.panel.prices[self.i].astype(np.float64)
         available = self.panel.available[self.i] > 0
         regime_now = int(self.panel.regime[self.i]) if self.panel.regime is not None else 0

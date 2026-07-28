@@ -83,9 +83,21 @@ def run_weight_backtest(
 ) -> BacktestResult:
     """Backtest a schedule of target weights against a pooled cash account.
 
+    ``weights`` carries a row only for rebalance dates (month ends by default), not for
+    every trading day. On those dates the portfolio is traded back to target; on every
+    other day it simply **drifts** with prices, which is what a real monthly-rebalanced
+    fund does. Charging a trade every day would make turnover costs dominate everything.
+
     Rows of ``weights`` need not sum to one -- a shortfall is held as cash and earns the
     configured rate, which is how a regime exposure overlay expresses de-risking without
     silently renormalising back to fully invested.
+
+    Rebalancing is two-pass, sells before buys, for the same reason as
+    :meth:`envs.core.PortfolioSimulator.step`: proceeds from a sale must be available to
+    fund a purchase, otherwise the achievable weights depend on column order. Both
+    backtesters share this so PPO and the allocators are charged identically -- if they
+    executed differently, any performance gap between them would be partly an artefact
+    of the execution model rather than the strategy.
     """
     model = cost_model if cost_model is not None else build_cost_model(cost_cfg)
     tickers = list(prices.columns)

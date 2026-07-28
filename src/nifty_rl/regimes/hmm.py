@@ -101,13 +101,27 @@ class GaussianHMMRegimes(RegimeDetector):
     def _forward(self, emission: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Scaled forward recursion. Returns ``(alpha, scaling)``.
 
-        ``alpha[t]`` is ``P(state_t | x_0..x_t)`` -- the filtered distribution. Rows
-        strictly after *t* are never touched, which is the whole point.
+        ``alpha[t]`` is ``P(state_t | x_0..x_t)`` -- today's belief about which regime we
+        are in, given everything seen *so far*. Rows strictly after *t* are never touched,
+        which is the whole point.
+
+        Each step is predict-then-update, exactly like a Kalman filter:
+
+        1. ``alpha[t-1] @ transmat_`` -- carry yesterday's belief forward through the
+           transition matrix, giving a prior for today before seeing today's data.
+        2. ``* emission[t]`` -- multiply by how well each state explains today's
+           observation, which sharpens the prior into a posterior.
+
+        The renormalisation at each step is bookkeeping, not modelling. Raw
+        probabilities are products of ~1,500 numbers below 1 and would underflow to zero
+        within a few hundred days; dividing each row by its sum keeps them O(1). The
+        divisors are returned because their logs sum to the log-likelihood.
         """
         n_obs, n_states = emission.shape
         alpha = np.zeros((n_obs, n_states))
         scaling = np.zeros(n_obs)
 
+        # Day 0 has no yesterday, so the prior is the starting distribution.
         current = self.startprob_ * emission[0]
         total = current.sum()
         scaling[0] = 1.0 / max(total, 1e-300)
@@ -122,9 +136,19 @@ class GaussianHMMRegimes(RegimeDetector):
         return alpha, scaling
 
     def _backward(self, emission: np.ndarray, scaling: np.ndarray) -> np.ndarray:
-        """Scaled backward recursion -- **fitting only**, never at prediction time."""
+        """Scaled backward recursion -- **fitting only**, never at prediction time.
+
+        The mirror image of :meth:`_forward`: ``beta[t]`` carries the evidence from days
+        *after* t back to t. Multiplying the two gives a posterior informed by the whole
+        series, which is what EM needs to re-estimate parameters -- and precisely what
+        must not touch a live regime label, since it means "knowing how the story ended".
+
+        Reuses the forward pass's ``scaling`` divisors so alpha and beta stay on a
+        compatible scale and their product needs no further correction.
+        """
         n_obs, n_states = emission.shape
         beta = np.zeros((n_obs, n_states))
+        # The last day has no future evidence; seed it with the scale factor alone.
         beta[-1] = scaling[-1]
         for t in range(n_obs - 2, -1, -1):
             beta[t] = (self.transmat_ @ (emission[t + 1] * beta[t + 1])) * scaling[t]
@@ -155,22 +179,49 @@ class GaussianHMMRegimes(RegimeDetector):
         self.transmat_ = counts / counts.sum(axis=1, keepdims=True)
 
     def _fit(self, X: np.ndarray) -> None:
+        """Baum-Welch (EM for HMMs). Alternates two steps until the likelihood settles.
+
+        **E-step** — given the current parameters, work out how likely each state was on
+        each day. Two quantities come out of it:
+
+        * ``gamma[t, k]`` = P(state on day *t* was *k* | the whole series). "How much does
+          day *t* belong to state *k*." Rows sum to 1.
+        * ``xi_sum[j, k]`` = expected number of *j* → *k* transitions across the series.
+
+        **M-step** — re-estimate the parameters treating those soft assignments as if they
+        were the observed truth. Each becomes a weighted average with ``gamma`` as the
+        weights: the mean of state *k* is the ``gamma[:, k]``-weighted mean of the data.
+
+        Each iteration cannot decrease the log-likelihood, so the loop stops once the
+        improvement falls below ``tol``. Both steps use the *whole* series -- including
+        days after *t* -- which is legitimate for parameter estimation on a training
+        block, and is exactly why :meth:`_filter`, not this, is used at prediction time.
+        """
         self._initialise(X)
         n_obs, n_features = X.shape
         previous_loglik = -np.inf
 
         for iteration in range(self.max_iter):
+            # ---- E-step -------------------------------------------------------
             log_emission = self._log_emission(X)
             emission, row_max = self._scaled_emission(log_emission)
 
-            alpha, scaling = self._forward(emission)
-            beta = self._backward(emission, scaling)
+            alpha, scaling = self._forward(emission)  # P(state_t | days up to t)
+            beta = self._backward(emission, scaling)  # P(days after t | state_t)
 
+            # The scaling factors divided out the likelihood as we went, so summing
+            # their logs recovers it; row_max adds back the emission offset.
             loglik = float(-np.log(scaling).sum() + row_max.sum())
 
+            # Forward x backward = evidence from both directions -> the smoothed
+            # posterior. Normalised per row so each day's assignment sums to 1.
             gamma = alpha * beta
             gamma /= np.maximum(gamma.sum(axis=1, keepdims=True), 1e-300)
 
+            # Expected transition counts. For each consecutive pair of days, the joint
+            # probability of (state j at t, state k at t+1) is the outer product of
+            # "evidence up to t" and "evidence after t+1", weighted by how likely the
+            # j -> k move was in the first place. Normalised per day, then accumulated.
             xi_sum = np.zeros((self.n_regimes, self.n_regimes))
             for t in range(n_obs - 1):
                 step = (
@@ -178,16 +229,25 @@ class GaussianHMMRegimes(RegimeDetector):
                 )
                 xi_sum += step / max(step.sum(), 1e-300)
 
+            # ---- M-step -------------------------------------------------------
+            # Every update below is "the soft assignments, treated as counts".
+
+            # Starting distribution: whatever day 0 turned out to be.
             self.startprob_ = np.maximum(gamma[0], 1e-12)
             self.startprob_ /= self.startprob_.sum()
 
+            # Transitions: expected j -> k counts, normalised into a probability per row.
             self.transmat_ = xi_sum / np.maximum(xi_sum.sum(axis=1, keepdims=True), 1e-300)
 
+            # Emissions: gamma-weighted mean and variance of the data per state. A state
+            # that owns few days gets a small `weights` entry and moves little.
             weights = np.maximum(gamma.sum(axis=0), 1e-300)
             self.means_ = (gamma.T @ X) / weights[:, None]
             deviation = X[:, None, :] - self.means_[None, :, :]
             self.variances_ = np.maximum(
                 (gamma[:, :, None] * deviation ** 2).sum(axis=0) / weights[:, None],
+                # A state that collapses onto near-identical days would otherwise get
+                # zero variance and infinite density, swallowing the whole series.
                 _VARIANCE_FLOOR,
             )
 
